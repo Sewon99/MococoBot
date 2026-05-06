@@ -442,7 +442,6 @@ async def main():
 
     for ext in [
         "cogs.siblings",
-        "cogs.party_create",
         "cogs.forum_config",
         "cogs.party_create_forum",
     ]:
