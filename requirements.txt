@@ -1,0 +1,7 @@
+py-cord
+fastapi
+uvicorn
+httpx
+pydantic
+aiomysql
+python-dotenv

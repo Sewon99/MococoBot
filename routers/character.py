@@ -13,6 +13,8 @@ from services.character_sync import (
 )
 import urllib.parse
 import logging
+from decimal import Decimal
+from typing import Any
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -148,7 +150,7 @@ async def search_character(nickname: str = Path(...)):
                             db_character = rows2[0] if rows2 else db_character
 
                 return JSONResponse(content={
-                    "data": format_datetime_fields(db_character),
+                    "data": convert_decimal_fields(format_datetime_fields(db_character)),
                     "source": "database",
                 })
 
@@ -158,14 +160,14 @@ async def search_character(nickname: str = Path(...)):
 
         saved_character = await save_character_to_db(lostark_data)
         return JSONResponse(content={
-            "data": saved_character or {
+            "data": convert_decimal_fields(saved_character or {
                 "id": 0, "user_id": "", "class_id": 0,
                 "char_name": lostark_data["char_name"],
                 "item_lvl": lostark_data["item_lvl"],
                 "combat_power": lostark_data["combat_power"],
                 "class_name": lostark_data["class_name"],
                 "class_emoji": "",
-            },
+            }),
             "source": "lostark_api",
         })
 
@@ -353,3 +355,12 @@ async def delete_character(character_id: int = Path(...)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Character deletion error: {str(e)}")
+
+def convert_decimal_fields(obj: Any):
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, dict):
+        return {k: convert_decimal_fields(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [convert_decimal_fields(v) for v in obj]
+    return obj

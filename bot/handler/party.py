@@ -4,6 +4,7 @@ from core.http_client import http_client
 from core.config import SUPPORTER_CLASSES
 from typing import List, Dict, Any, Optional, Tuple
 from commands.party_manage import MemberDropdown, MentionTypeView, permission_check
+from utils.forum_post_updater import update_forum_post
 
 _SUCCESS = {200, 201, 204}
 
@@ -106,6 +107,26 @@ async def _post_join(party_id: int, user_id: Any, character_id: int, role: int) 
             
     except Exception as e:
         return None, f"네트워크 오류: {e}"
+    
+async def refresh_character_before_join(char_name: str) -> bool:
+    """파티 참가 직전에 캐릭터 정보를 최신화합니다.
+    실패해도 참가 자체는 막지 않습니다.
+    """
+    if not char_name:
+        return False
+
+    try:
+        resp = await http_client.patch(
+            "/character/update",
+            json={
+                "char_name": char_name,
+                "update_discord": False,
+            },
+        )
+        return resp.status_code == 200
+    except Exception as e:
+        print(f"[refresh_character_before_join] failed: {char_name} / {e}")
+        return False
 
 # ---------------------- 역할 선택 ----------------------
 
@@ -118,32 +139,58 @@ class RoleSelectView(discord.ui.View):
         self.user_id = str(user_id)
 
     async def _join_party(self, interaction: discord.Interaction, role: int):
-        # 진행 중 중복 클릭 방지
-        for item in self.children:
-            item.disabled = True
         try:
-            await interaction.response.edit_message(view=self)
-        except Exception:
-            pass
+            print(f"[DEBUG] RoleSelectView._join_party start | party_id={self.party_id}, user_id={self.user_id}, char_id={self.character_data.get('id')}, role={role}")
 
-        code, message = await _post_join(self.party_id, self.user_id, int(self.character_data['id']), role)
-        if code in (200, 201, 204):
+            for item in self.children:
+                item.disabled = True
+
+            try:
+                await interaction.response.edit_message(view=self)
+                print("[DEBUG] interaction.response.edit_message success")
+            except Exception as e:
+                print(f"[DEBUG] interaction.response.edit_message failed: {e}")
+
+            await refresh_character_before_join(self.character_data.get("char_name"))
+            
+            code, message = await _post_join(
+                self.party_id,
+                self.user_id,
+                int(self.character_data["id"]),
+                role,
+            )
+
+            print(f"[DEBUG] _post_join result | code={code}, message={message}")
+
             role_name = "서포터" if role == 1 else "딜러"
-            try:
-                await interaction.edit_original_response(
-                    content=(
-                        f"**{self.character_data['char_name']}** ({role_name})로 파티에 참가했습니다!\n"
-                        + _format_character_summary(self.character_data)
-                    ),
-                    view=None,
+
+            if code in (200, 201, 204):
+                text = (
+                    f"**{self.character_data['char_name']}** ({role_name})로 파티에 참가했습니다!\n"
+                    + _format_character_summary(self.character_data)
                 )
-            except Exception:
-                pass
-        else:
+                if message:
+                    text += f"\n✅ {message}"
+                update_ok, update_msg = await update_forum_post(interaction.client, self.party_id)
+                if update_ok:
+                    text += "\n📝 모집 포스트를 갱신했어요."
+                try:
+                    await interaction.followup.send(text, ephemeral=True)
+                    print("[DEBUG] success followup sent")
+                except Exception as e:
+                    print(f"[DEBUG] success followup failed: {e}")
+            else:
+                text = message or "파티 참가에 실패했습니다."
+                try:
+                    await interaction.followup.send(f"❌ {text}", ephemeral=True)
+                    print("[DEBUG] failure followup sent")
+                except Exception as e:
+                    print(f"[DEBUG] failure followup failed: {e}")
+
+        except Exception as e:
+            print(f"[DEBUG] RoleSelectView._join_party exception: {e}")
             try:
-                await interaction.edit_original_response(
-                    content=message, view=None
-                )
+                await interaction.followup.send(f"❌ 역할 선택 처리 중 오류: {e}", ephemeral=True)
             except Exception:
                 pass
 
@@ -296,6 +343,8 @@ class RegisteredCharacterSelect(discord.ui.Select):
                     ephemeral=True,
                 )
                 return
+            
+            await refresh_character_before_join(ch.get("char_name"))
 
             code, message = await _post_join(self.party_id, self.user_id, int(char_id), role=0)
             
@@ -306,6 +355,11 @@ class RegisteredCharacterSelect(discord.ui.Select):
                 )
                 if message:
                     success_msg += f"\n✅ {message}"
+
+                update_ok, update_msg = await update_forum_post(interaction.client, self.party_id)
+                if update_ok:
+                    success_msg += "\n📝 모집 포스트를 갱신했어요."
+
                 await interaction.followup.send(success_msg, ephemeral=True)
             else:
                 error_content = message if message else "파티 참가 중 오류가 발생했습니다."
@@ -356,16 +410,23 @@ class CharacterNicknameModal(discord.ui.Modal):
                     ephemeral=True,
                 )
                 return
+            
+            await refresh_character_before_join(data.get("char_name"))
 
             code, message = await _post_join(self.party_id, self.user_id, int(data['id']), role=0)
             
             if code in (200, 201, 204):
                 success_msg = (
-                    f"**{data['char_name']}** 캐릭터로 파티에 참가했습니다!\n" +
+                    f"**{data.get('char_name', '이름없음')}** 캐릭터로 파티에 참가했습니다!\n" + 
                     _format_character_summary(data)
                 )
                 if message:
                     success_msg += f"\n✅ {message}"
+
+                update_ok, update_msg = await update_forum_post(interaction.client, self.party_id)
+                if update_ok:
+                    success_msg += "\n📝 모집 포스트를 갱신했어요."
+
                 await interaction.followup.send(success_msg, ephemeral=True)
             else:
                 error_content = message if message else "파티 참가 중 오류가 발생했습니다."
@@ -538,15 +599,25 @@ async def handle_party_leave(interaction: discord.Interaction, party_id: int):
         user_id = int(interaction.user.id)
         await interaction.response.defer(ephemeral=True)
         resp = await http_client.delete(f"/party/{party_id}/participants/{user_id}")
+
         if resp.status_code in (200, 204):
-            await interaction.followup.send("파티에서 탈퇴했습니다.", ephemeral=True)
+            msg = "파티에서 탈퇴했습니다."
+
+            update_ok, update_msg = await update_forum_post(interaction.client, party_id)
+            if update_ok:
+                msg += "\n📝 모집 포스트를 갱신했어요."
+
+            await interaction.followup.send(msg, ephemeral=True)
+
         elif resp.status_code == 404:
             await interaction.followup.send("참가하지 않은 파티입니다.", ephemeral=True)
+
         else:
             await interaction.followup.send(
                 f"탈퇴 처리 중 오류가 발생했습니다. (상태 코드: {resp.status_code})",
                 ephemeral=True,
             )
+
     except Exception as e:
         await interaction.followup.send(f"탈퇴 처리 중 오류가 발생했습니다.\n{e}", ephemeral=True)
 
@@ -824,3 +895,69 @@ async def handle_party_waitlist(interaction: discord.Interaction, party_id: int)
         await show_waitlist_detail(interaction, party_id, 0, edit=False)
     except Exception as e:
         await _send_ephemeral(interaction, f"오류가 발생했습니다: {str(e)}")
+
+async def handle_party_status(interaction: discord.Interaction, party_id: int):
+    """파티 현재 모집 현황 보기"""
+    try:
+        await interaction.response.defer(ephemeral=True)
+
+        resp = await http_client.get(f"/party/{party_id}")
+        if resp.status_code != 200:
+            await interaction.followup.send("파티 정보를 불러오지 못했습니다.", ephemeral=True)
+            return
+
+        payload = resp.json() or {}
+        party = payload.get("party", {}) or {}
+        participants = payload.get("participants", {}) or {}
+
+        dealers = participants.get("dealers", []) or []
+        supporters = participants.get("supporters", []) or []
+
+        embed = discord.Embed(
+            title=f"📋 {party.get('title', '파티 현황')}",
+            description=party.get("message") or "-",
+            color=discord.Color.blue(),
+        )
+        embed.add_field(
+            name="레이드",
+            value=f"{party.get('raid_name', '-')} / {party.get('difficulty', '-')}",
+            inline=True,
+        )
+        embed.add_field(
+            name="최소 레벨",
+            value=str(party.get("min_lvl", "-")),
+            inline=True,
+        )
+        embed.add_field(
+            name="현재 인원",
+            value=f"딜러 {len(dealers)}명 / 서폿 {len(supporters)}명 / 총 {len(dealers) + len(supporters)}명",
+            inline=True,
+        )
+
+        dealer_lines = []
+        for p in dealers[:20]:
+            dealer_lines.append(
+                f"• {p.get('char_name', '이름없음')} ({p.get('class_name', '직업정보없음')})"
+            )
+
+        supporter_lines = []
+        for p in supporters[:20]:
+            supporter_lines.append(
+                f"• {p.get('char_name', '이름없음')} ({p.get('class_name', '직업정보없음')})"
+            )
+
+        embed.add_field(
+            name="딜러",
+            value="\n".join(dealer_lines) if dealer_lines else "없음",
+            inline=False,
+        )
+        embed.add_field(
+            name="서포터",
+            value="\n".join(supporter_lines) if supporter_lines else "없음",
+            inline=False,
+        )
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    except Exception as e:
+        await interaction.followup.send(f"현황 조회 중 오류가 발생했습니다.\n{e}", ephemeral=True)

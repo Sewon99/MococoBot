@@ -4,11 +4,22 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from database.connection import get_db
 from typing import Dict, Optional
+from decimal import Decimal
+from typing import Any
 import urllib.parse
 try:
     from services.character_sync import search_lostark_character, save_character_to_db
 except Exception:
     from routers.character import search_lostark_character, save_character_to_db
+
+def convert_decimal_fields(obj: Any):
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, dict):
+        return {k: convert_decimal_fields(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [convert_decimal_fields(v) for v in obj]
+    return obj
 
 router = APIRouter()
 
@@ -60,7 +71,7 @@ async def list_user_characters(user_id: int):
             
             return {
                 "user_id": str(user_id),
-                "characters": rows,
+                "characters": convert_decimal_fields(rows),
                 "count": len(rows)
             }
         
