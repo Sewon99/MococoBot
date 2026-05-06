@@ -69,6 +69,28 @@ async def root():
 async def health():
     return {"ok": True}
 
+@app.get("/debug/db")
+async def debug_db():
+    try:
+        async with get_db() as db:
+            rows = await db.execute("SELECT 1 AS ok")
+            return {
+                "ok": True,
+                "rows": rows,
+            }
+    except Exception as e:
+        return {
+            "ok": False,
+            "error_type": type(e).__name__,
+            "error": str(e),
+            "db_env": {
+                "DB_HOST_SET": bool(os.getenv("DB_HOST")),
+                "DB_PORT_SET": bool(os.getenv("DB_PORT")),
+                "DB_USER_SET": bool(os.getenv("DB_USER")),
+                "DB_PASSWORD_SET": bool(os.getenv("DB_PASSWORD")),
+                "DB_NAME_SET": bool(os.getenv("DB_NAME")),
+            },
+        }
 
 @app.get("/debug/env")
 async def debug_env():
