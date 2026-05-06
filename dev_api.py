@@ -91,6 +91,59 @@ async def debug_db():
                 "DB_NAME_SET": bool(os.getenv("DB_NAME")),
             },
         }
+    
+@app.get("/debug/db-raw")
+async def debug_db_raw():
+    import aiomysql
+
+    host = os.getenv("DB_HOST")
+    port = int(os.getenv("DB_PORT", "3306"))
+    user = os.getenv("DB_USER")
+    password = os.getenv("DB_PASSWORD")
+    db_name = os.getenv("DB_NAME")
+
+    try:
+        conn = await aiomysql.connect(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            db=db_name,
+            charset="utf8mb4",
+        )
+
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT 1 AS ok")
+            row = await cur.fetchone()
+
+        conn.close()
+
+        return {
+            "ok": True,
+            "row": row,
+            "debug": {
+                "host_set": bool(host),
+                "port": port,
+                "user_set": bool(user),
+                "password_set": bool(password),
+                "db_name": db_name,
+            },
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "error_type": type(e).__name__,
+            "error": str(e),
+            "debug": {
+                "host_set": bool(host),
+                "host_preview": host[:20] + "..." if host else None,
+                "port": port,
+                "user_set": bool(user),
+                "password_set": bool(password),
+                "db_name": db_name,
+            },
+        }
 
 @app.get("/debug/env")
 async def debug_env():
