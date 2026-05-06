@@ -255,9 +255,68 @@ class MococoBot(discord.AutoShardedBot):
         self.start_time_ts = time.time()
         print("봇 초기화 완료")
 
-
     async def on_guild_join(self, guild: discord.Guild):
+        create_bg_task(self._send_welcome(guild), name="guild_join_welcome")
         await self.update_status()
+
+    async def _send_welcome(self, guild: discord.Guild):
+        target_channel = None
+
+        try:
+            if guild.system_channel and guild.system_channel.permissions_for(guild.me).send_messages:
+                target_channel = guild.system_channel
+            elif guild.rules_channel and guild.rules_channel.permissions_for(guild.me).send_messages:
+                target_channel = guild.rules_channel
+            else:
+                for channel in guild.text_channels:
+                    if channel.permissions_for(guild.me).send_messages:
+                        target_channel = channel
+                        break
+
+            if not target_channel:
+                print(f"서버 입장 가이드: {guild.name} - 메시지를 보낼 수 있는 채널이 없습니다.")
+                return
+
+            embed = discord.Embed(
+                title="🎉 능동봇이 서버에 참가했어요!",
+                description=(
+                    "안녕하세요! 로스트아크 파티 모집을 도와주는 **능동봇**이에요.\n\n"
+                    "원정대를 등록해두면, 포럼 모집글에서 원하는 캐릭터로 편하게 파티에 참가할 수 있어요."
+                ),
+                color=discord.Color.blurple(),
+            )
+
+            embed.add_field(
+                name="🚀 시작하기",
+                value=(
+                    "1️⃣ `/포럼채널설정` 으로 모집글을 올릴 포럼 채널을 설정해주세요.\n"
+                    "2️⃣ `/원정대` 또는 원정대 등록 버튼으로 캐릭터를 등록해주세요.\n"
+                    "3️⃣ `/파티생성포럼` 으로 모집글을 만들어보세요."
+                ),
+                inline=False,
+            )
+
+            embed.add_field(
+                name="📌 단순 주요 기능",
+                value=(
+                    "• 원정대 캐릭터 등록\n"
+                    "• 포럼 모집글 생성\n"
+                    "• 버튼으로 파티 참가 / 탈퇴\n"
+                    "• 참가 전 캐릭터 정보 자동 갱신\n"
+                    "• 참가/탈퇴 시 포럼 글 자동 갱신"
+                ),
+                inline=False,
+            )
+
+            embed.set_footer(text="관리자 권한이 필요한 설정은 서버 관리자만 사용할 수 있어요.")
+
+            if self.user and self.user.display_avatar:
+                embed.set_thumbnail(url=self.user.display_avatar.url)
+
+            await target_channel.send(embed=embed)
+
+        except Exception as e:
+            print(f"서버 입장 가이드 전송 실패: {guild.name if guild else 'Unknown'} - {e}")
 
     async def on_guild_remove(self, guild: discord.Guild):
         create_bg_task(
