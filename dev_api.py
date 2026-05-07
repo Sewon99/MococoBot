@@ -155,6 +155,7 @@ async def debug_env():
             "DB_PASSWORD_SET": bool(os.getenv("DB_PASSWORD")),
             "DB_NAME_SET": bool(os.getenv("DB_NAME")),
             "API_KEY_SET": bool(os.getenv("API_KEY")),
+            "LOSTARK_API_KEY_SET": bool(os.getenv("LOSTARK_API_KEY")),
         }
     )
 
