@@ -154,40 +154,15 @@ async def refresh_character_before_join(char_name: str) -> bool:
 class ProficiencySelect(discord.ui.Select):
     def __init__(self, parent_view: "ProficiencySelectView"):
         options = [
-            discord.SelectOption(
-                label="트라이",
-                value="트라이",
-                emoji="🌱",
-                description="처음 연습하거나 패턴을 익히는 단계",
-            ),
-            discord.SelectOption(
-                label="클경",
-                value="클경",
-                emoji="👀",
-                description="클리어 경험은 있지만 아직 익숙하진 않은 단계",
-            ),
-            discord.SelectOption(
-                label="반숙",
-                value="반숙",
-                emoji="🔰",
-                description="대부분 가능하지만 실수 가능성이 있는 단계",
-            ),
-            discord.SelectOption(
-                label="숙제",
-                value="숙제",
-                emoji="✅",
-                description="익숙하게 클리어 가능한 단계",
-            ),
-            discord.SelectOption(
-                label="능동급",
-                value="능동급",
-                emoji="🧠",
-                description="기믹과 상황 대처까지 능숙한 단계",
-            ),
+            discord.SelectOption(label="트라이", value="트라이", emoji="🌱"),
+            discord.SelectOption(label="클경", value="클경", emoji="👀"),
+            discord.SelectOption(label="반숙", value="반숙", emoji="🔰"),
+            discord.SelectOption(label="숙제", value="숙제", emoji="✅"),
+            discord.SelectOption(label="능동급", value="능동급", emoji="🧠"),
         ]
 
         super().__init__(
-            placeholder="숙련도를 선택해주세요...",
+            placeholder="숙련도를 선택해주세요!",
             min_values=1,
             max_values=1,
             options=options,
@@ -273,23 +248,11 @@ async def send_proficiency_select(
     embed = discord.Embed(
         title="🎯 숙련도 선택",
         description=(
-            f"**{char_name}** 캐릭터로 참가 신청할게요.\n"
+            f"**{char_name}** 캐릭터로 참가 신청할게요!\n"
             f"역할: **{role_name}**\n\n"
-            "아래에서 본인의 숙련도를 선택해주세요."
+            "참가 신청에 표시할 숙련도를 선택해주세요."
         ),
         color=discord.Color.blurple(),
-    )
-
-    embed.add_field(
-        name="숙련도 기준",
-        value=(
-            "🌱 **트라이**: 처음 연습하거나 패턴을 익히는 단계\n"
-            "👀 **클경**: 클리어 경험은 있지만 아직 익숙하진 않은 단계\n"
-            "🔰 **반숙**: 대부분 가능하지만 실수 가능성이 있는 단계\n"
-            "✅ **숙제**: 익숙하게 클리어 가능한 단계\n"
-            "🧠 **능동급**: 기믹과 상황 대처까지 능숙한 단계"
-        ),
-        inline=False,
     )
 
     view = ProficiencySelectView(
