@@ -6,3 +6,4 @@ pydantic
 aiomysql
 python-dotenv
 cryptography
+h2
