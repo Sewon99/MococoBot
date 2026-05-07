@@ -7,7 +7,6 @@ from typing import Any, Dict, Optional
 from utils.http_client import get_http_client
 
 
-LOSTARK_API_KEY = os.getenv("LOSTARK_API_KEY")
 LOSTARK_API_BASE = "https://developer-lostark.game.onstove.com"
 _CACHE_TTL_SEC = float(os.getenv("LOSTARK_CHAR_CACHE_TTL_SEC", "15"))
 _CACHE_MAX_SIZE = int(os.getenv("LOSTARK_CHAR_CACHE_MAX", "1024"))
@@ -27,14 +26,34 @@ def _parse_float(value: Any, default: float = 0.0) -> float:
 
 async def _fetch_lostark_character(char_name: str) -> Optional[Dict[str, Any]]:
     try:
+        api_key = os.getenv("LOSTARK_API_KEY", "").strip()
+
+        if not api_key:
+            print("[LostArk API] LOSTARK_API_KEY is empty")
+            return None
+
+        # 혹시 Railway 변수에 실수로 bearer까지 넣었을 경우 방어
+        if api_key.lower().startswith("bearer "):
+            api_key = api_key.split(" ", 1)[1].strip()
+
+        encoded_name = urllib.parse.quote(char_name, safe="")
+        url = f"{LOSTARK_API_BASE}/armories/characters/{encoded_name}/profiles"
+
         client = await get_http_client()
         response = await client.get(
-            f"{LOSTARK_API_BASE}/armories/characters/{urllib.parse.quote(char_name)}/profiles",
-            headers={"Authorization": f"Bearer {LOSTARK_API_KEY}"},
+            url,
+            headers={
+                "accept": "application/json",
+                "authorization": f"bearer {api_key}",
+            },
             timeout=15.0,
         )
 
         if response.status_code != 200:
+            print(
+                f"[LostArk API] character profile failed | "
+                f"name={char_name} | status={response.status_code} | body={response.text[:300]}"
+            )
             return None
 
         data = response.json()
@@ -48,7 +67,8 @@ async def _fetch_lostark_character(char_name: str) -> Optional[Dict[str, Any]]:
             "item_lvl": _parse_float(data.get("ItemAvgLevel")),
             "combat_power": _parse_float(data.get("CombatPower")),
         }
-    except Exception:
+    except Exception as e:
+        print(f"[LostArk API] character profile exception | name={char_name} | error={e}")
         return None
 
 
