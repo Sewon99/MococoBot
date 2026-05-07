@@ -4,6 +4,19 @@ from datetime import datetime
 
 from core.http_client import http_client
 
+PROFICIENCY_EMOJIS = {
+    "트라이": "🌱",
+    "클경": "👀",
+    "반숙": "🔰",
+    "숙제": "✅",
+    "능동급": "🧠",
+}
+
+
+def _format_proficiency(value):
+    value = value or "숙제"
+    emoji = PROFICIENCY_EMOJIS.get(value, "✅")
+    return f"{emoji} {value}"
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
@@ -71,8 +84,10 @@ def _format_member_line(member: Dict[str, Any], role_emoji: str) -> str:
     item_lvl = _fmt_num(member.get("item_lvl"), 2)
     combat_power = _fmt_num(member.get("combat_power"), 2)
 
+    proficiency = _format_proficiency(member.get("proficiency"))
+
     return (
-        f"{mention} {role_emoji} **{char_name}**\n"
+        f"{mention} {role_emoji} **{char_name}** · **{proficiency}**\n"
         f"Lv.{item_lvl} | {class_name} | 전투력 {combat_power}"
     )
 

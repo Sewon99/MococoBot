@@ -8,7 +8,8 @@ from database.connection import get_db
 
 
 router = APIRouter()
-
+ALLOWED_PROFICIENCIES = {"트라이", "클경", "반숙", "숙제", "능동급"}
+DEFAULT_PROFICIENCY = "숙제"
 
 class PartyCreateRequest(BaseModel):
     title: str = Field(..., example="세르카 모집")
@@ -26,6 +27,7 @@ class PartyJoinRequest(BaseModel):
     character_id: int
     user_id: int
     role: int  # 0=dealer, 1=supporter
+    proficiency: str = Field(DEFAULT_PROFICIENCY, example="숙제")
 
 
 async def get_or_create_free_raid_id(db) -> int:
@@ -155,6 +157,7 @@ async def get_party(party_id: int):
                 pt.character_id,
                 pt.user_id,
                 pt.role,
+                pt.proficiency,
                 pt.joined_at,
                 c.char_name,
                 c.item_lvl,
@@ -284,6 +287,14 @@ async def join_party(party_id: int, body: PartyJoinRequest):
         if body.role == 1 and int(party["is_supporter_closed"]) == 1:
             raise HTTPException(status_code=400, detail="Supporter recruitment is closed")
 
+        proficiency = (body.proficiency or DEFAULT_PROFICIENCY).strip()
+
+        if proficiency not in ALLOWED_PROFICIENCIES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"proficiency must be one of {', '.join(sorted(ALLOWED_PROFICIENCIES))}",
+            )
+
         char_rows = await db.execute(
             """
             SELECT c.id, c.item_lvl
@@ -315,10 +326,10 @@ async def join_party(party_id: int, body: PartyJoinRequest):
 
         await db.execute(
             """
-            INSERT INTO participants (party_id, character_id, user_id, role)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO participants (party_id, character_id, user_id, role, proficiency)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (party_id, body.character_id, body.user_id, body.role),
+            (party_id, body.character_id, body.user_id, body.role, proficiency),
         )
         await db.commit()
 
@@ -346,6 +357,7 @@ async def join_party(party_id: int, body: PartyJoinRequest):
             "party_id": party_id,
             "character_id": body.character_id,
             "role": body.role,
+            "proficiency": proficiency,
             "dealer_count": dealer_count,
             "supporter_count": supporter_count,
             "total_count": total_count,

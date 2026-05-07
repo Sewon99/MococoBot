@@ -9,6 +9,22 @@ from utils.forum_post_updater import update_forum_post
 _SUCCESS = {200, 201, 204}
 
 # ---------------------- 유틸 ----------------------
+
+PROFICIENCIES = ["트라이", "클경", "반숙", "숙제", "능동급"]
+
+PROFICIENCY_EMOJIS = {
+    "트라이": "🌱",
+    "클경": "👀",
+    "반숙": "🔰",
+    "숙제": "✅",
+    "능동급": "🧠",
+}
+
+def _format_proficiency(value: str | None) -> str:
+    value = value or "숙제"
+    return f"{PROFICIENCY_EMOJIS.get(value, '✅')} {value}"
+
+
 def _safe_int(v, default: int = 0) -> int:
     try:
         return int(v)
@@ -72,7 +88,7 @@ async def auto_join_party_by_nickname(party_id: int, user_id: Any, nickname: str
         role = 1 if class_name in SUPPORTER_CLASSES else 0
 
         char_id = int(data["id"])
-        code, message = await _post_join(int(party_id), user_id, char_id, role)
+        code, message = await _post_join(int(party_id), user_id, char_id, role, proficiency="숙제")
 
         if code in (200, 201, 204):
             return True, message or "파티에 성공적으로 참가했습니다."
@@ -80,7 +96,13 @@ async def auto_join_party_by_nickname(party_id: int, user_id: Any, nickname: str
     except Exception as e:
         return False, f"자동 참가 중 오류가 발생했습니다: {e}"
 
-async def _post_join(party_id: int, user_id: Any, character_id: int, role: int) -> tuple[Optional[int], Optional[str]]:
+async def _post_join(
+    party_id: int,
+    user_id: Any,
+    character_id: int,
+    role: int,
+    proficiency: str = "숙제",
+) -> tuple[Optional[int], Optional[str]]:
     """파티 참가 HTTP 요청"""
     try:
         resp = await http_client.post(
@@ -89,22 +111,21 @@ async def _post_join(party_id: int, user_id: Any, character_id: int, role: int) 
                 "character_id": character_id,
                 "user_id": str(user_id),
                 "role": role,
+                "proficiency": proficiency,
             },
         )
-        
-        # JSON 응답 파싱 시도
+
         try:
             response_data = resp.json()
-            message = response_data.get("message", "")
+            message = response_data.get("detail") or response_data.get("message", "")
         except Exception:
-            # JSON 파싱 실패 시 기본 메시지
             if resp.status_code in (200, 201, 204):
                 message = "파티에 성공적으로 참가했습니다."
             else:
                 message = "파티 참가에 실패하였어요."
-        
+
         return resp.status_code, message
-            
+
     except Exception as e:
         return None, f"네트워크 오류: {e}"
     
@@ -130,6 +151,159 @@ async def refresh_character_before_join(char_name: str) -> bool:
 
 # ---------------------- 역할 선택 ----------------------
 
+class ProficiencySelect(discord.ui.Select):
+    def __init__(self, parent_view: "ProficiencySelectView"):
+        options = [
+            discord.SelectOption(
+                label="트라이",
+                value="트라이",
+                emoji="🌱",
+                description="처음 연습하거나 패턴을 익히는 단계",
+            ),
+            discord.SelectOption(
+                label="클경",
+                value="클경",
+                emoji="👀",
+                description="클리어 경험은 있지만 아직 익숙하진 않은 단계",
+            ),
+            discord.SelectOption(
+                label="반숙",
+                value="반숙",
+                emoji="🔰",
+                description="대부분 가능하지만 실수 가능성이 있는 단계",
+            ),
+            discord.SelectOption(
+                label="숙제",
+                value="숙제",
+                emoji="✅",
+                description="익숙하게 클리어 가능한 단계",
+            ),
+            discord.SelectOption(
+                label="능동급",
+                value="능동급",
+                emoji="🧠",
+                description="기믹과 상황 대처까지 능숙한 단계",
+            ),
+        ]
+
+        super().__init__(
+            placeholder="숙련도를 선택해주세요...",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+        self.parent_view = parent_view
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.parent_view.join_with_proficiency(interaction, self.values[0])
+
+
+class ProficiencySelectView(discord.ui.View):
+    def __init__(
+        self,
+        party_id: int,
+        user_id: Any,
+        character_data: Dict[str, Any],
+        role: int,
+    ):
+        super().__init__(timeout=180)
+        self.party_id = int(party_id)
+        self.user_id = str(user_id)
+        self.character_data = character_data
+        self.role = int(role)
+        self.add_item(ProficiencySelect(self))
+
+    async def join_with_proficiency(self, interaction: discord.Interaction, proficiency: str):
+        for item in self.children:
+            item.disabled = True
+
+        try:
+            await interaction.response.edit_message(
+                content=f"⏳ {_format_proficiency(proficiency)} 숙련도로 참가 처리 중입니다...",
+                view=self,
+            )
+        except Exception:
+            pass
+
+        ch = self.character_data
+        char_id = int(ch["id"])
+        char_name = ch.get("char_name", "이름없음")
+        role_name = "서포터" if self.role == 1 else "딜러"
+
+        await refresh_character_before_join(char_name)
+
+        code, message = await _post_join(
+            self.party_id,
+            self.user_id,
+            char_id,
+            self.role,
+            proficiency=proficiency,
+        )
+
+        if code in (200, 201, 204):
+            success_msg = (
+                f"✅ **{char_name}** 캐릭터로 파티에 참가했습니다!\n"
+                f"역할: **{role_name}**\n"
+                f"숙련도: **{_format_proficiency(proficiency)}**\n"
+                f"{_format_character_summary(ch)}"
+            )
+
+            if message:
+                success_msg += f"\n✅ {message}"
+
+            update_ok, update_msg = await update_forum_post(interaction.client, self.party_id)
+            if update_ok:
+                success_msg += "\n📝 모집 포스트를 갱신했어요."
+
+            await interaction.followup.send(success_msg, ephemeral=True)
+        else:
+            error_content = message if message else "파티 참가 중 오류가 발생했습니다."
+            await interaction.followup.send(f"❌ {error_content}", ephemeral=True)
+
+async def send_proficiency_select(
+    interaction: discord.Interaction,
+    party_id: int,
+    user_id: Any,
+    character_data: Dict[str, Any],
+    role: int,
+):
+    role_name = "서포터" if int(role) == 1 else "딜러"
+    char_name = character_data.get("char_name", "이름없음")
+
+    embed = discord.Embed(
+        title="🎯 숙련도 선택",
+        description=(
+            f"**{char_name}** 캐릭터로 참가 신청할게요.\n"
+            f"역할: **{role_name}**\n\n"
+            "아래에서 본인의 숙련도를 선택해주세요."
+        ),
+        color=discord.Color.blurple(),
+    )
+
+    embed.add_field(
+        name="숙련도 기준",
+        value=(
+            "🌱 **트라이**: 처음 연습하거나 패턴을 익히는 단계\n"
+            "👀 **클경**: 클리어 경험은 있지만 아직 익숙하진 않은 단계\n"
+            "🔰 **반숙**: 대부분 가능하지만 실수 가능성이 있는 단계\n"
+            "✅ **숙제**: 익숙하게 클리어 가능한 단계\n"
+            "🧠 **능동급**: 기믹과 상황 대처까지 능숙한 단계"
+        ),
+        inline=False,
+    )
+
+    view = ProficiencySelectView(
+        party_id=party_id,
+        user_id=user_id,
+        character_data=character_data,
+        role=role,
+    )
+
+    if interaction.response.is_done():
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    else:
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
 class RoleSelectView(discord.ui.View):
     """딜러/서포터 역할 선택 버튼"""
     def __init__(self, party_id: int, character_data: Dict[str, Any], user_id: Any):
@@ -140,52 +314,26 @@ class RoleSelectView(discord.ui.View):
 
     async def _join_party(self, interaction: discord.Interaction, role: int):
         try:
-            print(f"[DEBUG] RoleSelectView._join_party start | party_id={self.party_id}, user_id={self.user_id}, char_id={self.character_data.get('id')}, role={role}")
-
             for item in self.children:
                 item.disabled = True
 
-            try:
-                await interaction.response.edit_message(view=self)
-                print("[DEBUG] interaction.response.edit_message success")
-            except Exception as e:
-                print(f"[DEBUG] interaction.response.edit_message failed: {e}")
-
-            await refresh_character_before_join(self.character_data.get("char_name"))
-            
-            code, message = await _post_join(
-                self.party_id,
-                self.user_id,
-                int(self.character_data["id"]),
-                role,
-            )
-
-            print(f"[DEBUG] _post_join result | code={code}, message={message}")
-
             role_name = "서포터" if role == 1 else "딜러"
 
-            if code in (200, 201, 204):
-                text = (
-                    f"**{self.character_data['char_name']}** ({role_name})로 파티에 참가했습니다!\n"
-                    + _format_character_summary(self.character_data)
+            try:
+                await interaction.response.edit_message(
+                    content=f"**{self.character_data.get('char_name', '이름없음')}** 캐릭터의 역할을 **{role_name}**으로 선택했어요.",
+                    view=self,
                 )
-                if message:
-                    text += f"\n✅ {message}"
-                update_ok, update_msg = await update_forum_post(interaction.client, self.party_id)
-                if update_ok:
-                    text += "\n📝 모집 포스트를 갱신했어요."
-                try:
-                    await interaction.followup.send(text, ephemeral=True)
-                    print("[DEBUG] success followup sent")
-                except Exception as e:
-                    print(f"[DEBUG] success followup failed: {e}")
-            else:
-                text = message or "파티 참가에 실패했습니다."
-                try:
-                    await interaction.followup.send(f"❌ {text}", ephemeral=True)
-                    print("[DEBUG] failure followup sent")
-                except Exception as e:
-                    print(f"[DEBUG] failure followup failed: {e}")
+            except Exception:
+                pass
+
+            await send_proficiency_select(
+                interaction=interaction,
+                party_id=self.party_id,
+                user_id=self.user_id,
+                character_data=self.character_data,
+                role=role,
+            )
 
         except Exception as e:
             print(f"[DEBUG] RoleSelectView._join_party exception: {e}")
@@ -344,26 +492,19 @@ class RegisteredCharacterSelect(discord.ui.Select):
                 )
                 return
             
-            await refresh_character_before_join(ch.get("char_name"))
-
-            code, message = await _post_join(self.party_id, self.user_id, int(char_id), role=0)
-            
-            if code in (200, 201, 204):
-                success_msg = (
-                    f"**{ch.get('char_name', '이름없음')}** 캐릭터로 파티에 참가했습니다!\n" + 
-                    _format_character_summary(ch)
-                )
-                if message:
-                    success_msg += f"\n✅ {message}"
-
-                update_ok, update_msg = await update_forum_post(interaction.client, self.party_id)
-                if update_ok:
-                    success_msg += "\n📝 모집 포스트를 갱신했어요."
-
-                await interaction.followup.send(success_msg, ephemeral=True)
-            else:
-                error_content = message if message else "파티 참가 중 오류가 발생했습니다."
-                await interaction.followup.send(f"❌ {error_content}", ephemeral=True)
+            await send_proficiency_select(
+                interaction=interaction,
+                party_id=self.party_id,
+                user_id=self.user_id,
+                character_data={
+                    "id": char_id,
+                    "char_name": ch.get("char_name", "이름없음"),
+                    "class_name": ch.get("class_name"),
+                    "item_lvl": ch.get("item_lvl"),
+                    "combat_power": ch.get("combat_power"),
+                },
+                role=0,
+            )
 
         except Exception as e:
             await interaction.followup.send(f"❌ 오류가 발생했습니다: {e}", ephemeral=True)
@@ -411,26 +552,13 @@ class CharacterNicknameModal(discord.ui.Modal):
                 )
                 return
             
-            await refresh_character_before_join(data.get("char_name"))
-
-            code, message = await _post_join(self.party_id, self.user_id, int(data['id']), role=0)
-            
-            if code in (200, 201, 204):
-                success_msg = (
-                    f"**{data.get('char_name', '이름없음')}** 캐릭터로 파티에 참가했습니다!\n" + 
-                    _format_character_summary(data)
-                )
-                if message:
-                    success_msg += f"\n✅ {message}"
-
-                update_ok, update_msg = await update_forum_post(interaction.client, self.party_id)
-                if update_ok:
-                    success_msg += "\n📝 모집 포스트를 갱신했어요."
-
-                await interaction.followup.send(success_msg, ephemeral=True)
-            else:
-                error_content = message if message else "파티 참가 중 오류가 발생했습니다."
-                await interaction.followup.send(f"❌ {error_content}", ephemeral=True)
+            await send_proficiency_select(
+                interaction=interaction,
+                party_id=self.party_id,
+                user_id=self.user_id,
+                character_data=data,
+                role=0,
+            )
 
         except Exception as e:
             await interaction.followup.send("캐릭터 등록 중 오류가 발생했습니다.", ephemeral=True)
