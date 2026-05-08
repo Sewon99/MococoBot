@@ -415,15 +415,29 @@ class PartyCreateForum(commands.Cog):
             participants = {"dealers": [], "supporters": []}
             content = build_party_header_content(party, participants)
             embed = build_party_embed(party, participants)
+            lostark_role = discord.utils.get(guild.roles, name="로스트아크")
+            mention_text = lostark_role.mention if lostark_role else ""
 
+            if mention_text:
+                content = f"{mention_text}\n{content}"
+
+            month_day = date_value[5:].replace("-", "/")
+            forum_title = f"[{month_day} {time_value}] {title}"
+            forum_title = forum_title[:100]
+            
             view = PartyEntryView(party_id)
 
             thread = await forum_channel.create_thread(
-                name=title[:100],
+                name=forum_title,
                 content=content,
                 embed=embed,
                 view=view,
                 auto_archive_duration=1440,
+                allowed_mentions=discord.AllowedMentions(
+                    roles=True,
+                    users=False,
+                    everyone=False,
+                )
             )
 
             created_thread = thread.thread if hasattr(thread, "thread") else thread
